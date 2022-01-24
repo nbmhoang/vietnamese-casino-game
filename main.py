@@ -1,3 +1,5 @@
+TOKEN = ''
+
 import glob
 import random
 import discord
@@ -23,9 +25,24 @@ async def on_message(message):
 
     content = message.content.lower()
 
+    if content == 'top':
+        con = sqlite3.connect('db.sqlite')
+        cursor = con.cursor()        
+        msg = 'Bảng Xếp Hạng - Top 5 players nhiều tiền nhất\n'
+        sql = 'SELECT user_id, coin FROM tbl_users ORDER BY coin DESC LIMIT 5'
+        cursor.execute(sql)
+        rows = cursor.fetchall()
+        for index, row in enumerate(rows):
+            user = await bot.fetch_user(row[0])
+            msg += f'{index+1}. {user.name}: {row[1]:,}đ\n'
+        await message.channel.send(msg)
+        cursor.close()
+        con.close()
+        return
+
     if content == 'reg':
         con = sqlite3.connect('db.sqlite')
-        cursor = con.cursor();
+        cursor = con.cursor()
         x = cursor.execute("""
             INSERT OR IGNORE INTO tbl_users(user_id) VALUES (?)
         """, (message.author.id, ))
@@ -119,4 +136,4 @@ async def on_message(message):
         con.close()
         await message.channel.send(c)
 
-bot.run('')
+bot.run(TOKEN)
