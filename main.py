@@ -7,7 +7,7 @@ import sqlite3
 
 bot = discord.Client()
 
-images = glob.glob('images/*.png')
+images = sorted(glob.glob('images/*.png'))
 emoji = ('<:XXNai:934083405631590550>', '<:XXBau:934083430361227274>', '<:XXGa:934081793097887844>',
             '<:XXCa:934083439643213855>', '<:XXCua:934083448275083304>', '<:XXTom:934083420345221180>', )
 last_msg = ''
