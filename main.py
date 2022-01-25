@@ -1,11 +1,12 @@
-TOKEN = ''
-
 import glob
 import random
 import discord
-import cv2
-from time import sleep
+import io
+import asyncio
 import sqlite3
+import os
+from dotenv import load_dotenv
+from PIL import Image
 
 bot = discord.Client()
 
@@ -28,13 +29,14 @@ async def on_message(message):
     if content == 'top':
         con = sqlite3.connect('db.sqlite')
         cursor = con.cursor()        
-        msg = 'Bảng Xếp Hạng - Top 5 players nhiều tiền nhất\n'
-        sql = 'SELECT user_id, coin FROM tbl_users ORDER BY coin DESC LIMIT 5'
-        cursor.execute(sql)
+        msg = 'Bảng Xếp Hạng Server hiện tại\n'
+        sql = 'SELECT user_id, coin FROM tbl_users WHERE guild_id=? ORDER BY coin DESC'
+        sv_id = int(message.channel.guild.id)
+        cursor.execute(sql, (sv_id, ))
         rows = cursor.fetchall()
         for index, row in enumerate(rows):
             user = await bot.fetch_user(row[0])
-            msg += f'{index+1}. {user.name}: {row[1]:,}đ\n'
+            msg += f'{index+1}. {user.name}: {row[1]*1000:,}đ\n'
         await message.channel.send(msg)
         cursor.close()
         con.close()
@@ -43,25 +45,26 @@ async def on_message(message):
     if content == 'reg':
         con = sqlite3.connect('db.sqlite')
         cursor = con.cursor()
+        server_id = int(message.channel.guild.id)
         x = cursor.execute("""
-            INSERT OR IGNORE INTO tbl_users(user_id) VALUES (?)
-        """, (message.author.id, ))
+            INSERT OR IGNORE INTO tbl_users(user_id, guild_id) VALUES (?, ?)
+        """, (message.author.id, server_id))
         n = x.rowcount
         con.commit()
         cursor.close()
         con.close()
         if n > 0:
-            await message.channel.send(f'Tài khoản {message.author.name} đã đăng ký thành công. Nhận 100.000đ làm vốn')
+            await message.channel.send(f'Tài khoản {message.author.name} đã đăng ký thành công vào mã server {server_id}. Nhận 100.000đ làm vốn')
         else:
-            await message.channel.send('Đăng ký rồi đăng ký lại làm gì nữa vậy cha')
+            await message.channel.send('Đã đăng ký tài khoản!')
         return
 
     if content == 'chk':
         con = sqlite3.connect('db.sqlite')
         cursor = con.cursor();
         cursor.execute("""
-            SELECT coin FROM tbl_users WHERE user_id LIKE ?
-        """, (message.author.id, ))
+            SELECT coin FROM tbl_users WHERE user_id LIKE ? AND guild_id=?
+        """, (message.author.id, int(message.channel.guild.id)))
         rs = cursor.fetchone()
         if not rs:
             await message.channel.send('Tài khoản chưa đăng ký. Gọi reg để đăng ký và nhận tiền')
@@ -75,7 +78,7 @@ async def on_message(message):
         return
 
     if content == 'xx':
-        predict_msg = await message.channel.send('Đặt nào bà con')
+        predict_msg = await message.channel.send('Đặt nào bà con. 10k/cửa, vui lòng đặt trước khi súc sắc biến mất!')
         for emo in emoji:
             await predict_msg.add_reaction(emo)
         # Send dice gif
@@ -83,20 +86,20 @@ async def on_message(message):
 
         # Generate
         result = random.choices([i for i in range(len(images))], k=3)
-        imgs = []
-        for index in result:
-            imgs.append(cv2.imread(images[index]))
-        img_h = cv2.hconcat(imgs)
-        cv2.imwrite('result.png', img_h)
-        sleep(10)
-
+        imgs = [Image.open(images[i]) for i in result]
+        width, height = imgs[0].size
+        total_width = width*len(imgs)
+        new_im = Image.new('RGB', (total_width, height))
+        offset = 0
+        for img in imgs:
+            new_im.paste(img, (offset, 0))
+            offset += width
         correct_cell = tuple(emoji[i] for i in result)
-
+        await asyncio.sleep(10)
         msg = await message.channel.fetch_message(message.id)
         await msg.delete()
         after = await message.channel.fetch_message(predict_msg.id)
         result = {}
-        s = set()
         for reaction in after.reactions:
             users = await reaction.users().flatten()
             is_correct = str(reaction.emoji) in correct_cell
@@ -114,12 +117,16 @@ async def on_message(message):
                             result[u] += correct_cell.count(str(reaction.emoji))
                         else:
                             result[u] -= 1
-                
         
-        await message.channel.send(file=discord.File('result.png'))
+        with io.BytesIO() as buffer:
+            new_im.save(buffer, 'PNG')
+            buffer.seek(0)
+            await message.channel.send(file=discord.File(fp=buffer, filename='fuckyou.png'))
+
         c = 'Kết quả:\n'
         con = sqlite3.connect('db.sqlite')
         cursor = con.cursor()
+        data = []
         for i, u in result.items():
             tien = f'{abs(u*10_000):,} đ'
             if u > 0:
@@ -128,12 +135,14 @@ async def on_message(message):
                 c += f'{i.name}: thua {tien}\n'
             else:
                 c += f'{i.name}: huề vốn\n'
-            cursor.execute("""
-                UPDATE tbl_users SET coin = coin + ? WHERE user_id LIKE ?
-            """, (u*10, i.id))
+            data.append((u*10, i.id, int(message.channel.guild.id)))
+        cursor.executemany("""
+            UPDATE tbl_users SET coin = coin + ? WHERE user_id LIKE ? AND guild_id=?
+        """, data)
         con.commit()
         cursor.close()
         con.close()
         await message.channel.send(c)
 
-bot.run(TOKEN)
+load_dotenv()
+bot.run(os.getenv('TOKEN'))
